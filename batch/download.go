@@ -2,9 +2,8 @@ package main
 
 import (
 	"archive/zip"
+	"bufio"
 	"fmt"
-	"golang.org/x/text/encoding/japanese"
-	"golang.org/x/text/transform"
 	"io"
 	"io/ioutil"
 	"log"
@@ -12,6 +11,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/text/encoding/japanese"
+	"golang.org/x/text/transform"
 )
 
 func main() {
@@ -36,8 +38,15 @@ func main() {
 	if err != nil {
 		log.Fatal(err.Error())
 	}
-	err = ioutil.WriteFile("KEN_ALL_UT8.CSV", []byte(sUTF), 0664)
+	err = ioutil.WriteFile("KEN_ALL_UTF8.CSV", []byte(sUTF), 0664)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
 
+	_, err = LoadStruct("KEN_ALL_UTF8.CSV")
+	if err != nil {
+		log.Fatal(err.Error())
+	}
 }
 
 func DownloadFile(url string, filePath string) error {
@@ -75,7 +84,10 @@ func Unzip(src, dest string) error {
 
 		path := filepath.Join(dest, f.Name)
 		if f.FileInfo().IsDir() {
-			os.MkdirAll(path, f.Mode())
+			err := os.MkdirAll(path, f.Mode())
+			if err != nil {
+				return err
+			}
 		} else {
 			f, err := os.OpenFile(
 				path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
@@ -101,4 +113,36 @@ func DecodeSJIS(s string) (string, error) {
 		return "", err
 	}
 	return string(decBytes), nil
+}
+
+type PostcodeData struct {
+	PublicOrgCode  string
+	PostcodeOld    string
+	Postcode       string
+	PrefectureRuby string
+	CityRuby       string
+	CityAreaRuby   string
+	Prefecture     string
+	City           string
+	CityArea       string
+	Flag1          int
+	Flag2          int
+	Flag3          int
+	Flag4          int
+	Flag5          int
+	Flag6          int
+}
+
+func LoadStruct(file string) ([]PostcodeData, error) {
+	f, err := os.Open(file)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		fmt.Println(scanner.Text())
+	}
+	return nil, nil
 }
