@@ -3,6 +3,9 @@ package main
 import (
 	"archive/zip"
 	"bufio"
+	"bytes"
+	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -12,38 +15,44 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/koooyooo/post-gae/batch/model"
 	"golang.org/x/text/encoding/japanese"
 	"golang.org/x/text/transform"
 )
 
 func main() {
-	fmt.Println("Hello Download")
-	err := DownloadFile("https://www.post.japanpost.jp/zipcode/dl/kogaki/zip/ken_all.zip", "ken_all.zip")
+	//fmt.Println("Hello Download")
+	//err := DownloadFile("https://www.post.japanpost.jp/zipcode/dl/kogaki/zip/ken_all.zip", "ken_all.zip")
+	//if err != nil {
+	//	log.Fatal(err.Error())
+	//}
+	//
+	//err = Unzip("ken_all.zip", ".")
+	//if err != nil {
+	//	log.Fatal(err.Error())
+	//}
+	//
+	//bSJIS, err := ioutil.ReadFile("KEN_ALL.CSV")
+	//if err != nil {
+	//	log.Fatal(err.Error())
+	//}
+	//sSJIS := string(bSJIS)
+	//
+	//sUTF, err := DecodeSJIS(sSJIS)
+	//if err != nil {
+	//	log.Fatal(err.Error())
+	//}
+	//err = ioutil.WriteFile("KEN_ALL_UTF8.CSV", []byte(sUTF), 0664)
+	//if err != nil {
+	//	log.Fatal(err.Error())
+	//}
+
+	postcodes, err := LoadStruct("KEN_ALL_UTF8.CSV")
 	if err != nil {
 		log.Fatal(err.Error())
 	}
 
-	err = Unzip("ken_all.zip", ".")
-	if err != nil {
-		log.Fatal(err.Error())
-	}
-
-	bSJIS, err := ioutil.ReadFile("KEN_ALL.CSV")
-	if err != nil {
-		log.Fatal(err.Error())
-	}
-	sSJIS := string(bSJIS)
-
-	sUTF, err := DecodeSJIS(sSJIS)
-	if err != nil {
-		log.Fatal(err.Error())
-	}
-	err = ioutil.WriteFile("KEN_ALL_UTF8.CSV", []byte(sUTF), 0664)
-	if err != nil {
-		log.Fatal(err.Error())
-	}
-
-	_, err = LoadStruct("KEN_ALL_UTF8.CSV")
+	err = WriteJson(postcodes, "KEN_ALL.json")
 	if err != nil {
 		log.Fatal(err.Error())
 	}
@@ -115,34 +124,65 @@ func DecodeSJIS(s string) (string, error) {
 	return string(decBytes), nil
 }
 
-type PostcodeData struct {
-	PublicOrgCode  string
-	PostcodeOld    string
-	Postcode       string
-	PrefectureRuby string
-	CityRuby       string
-	CityAreaRuby   string
-	Prefecture     string
-	City           string
-	CityArea       string
-	Flag1          int
-	Flag2          int
-	Flag3          int
-	Flag4          int
-	Flag5          int
-	Flag6          int
-}
-
-func LoadStruct(file string) ([]PostcodeData, error) {
+func LoadStruct(file string) ([]model.Postcode, error) {
 	f, err := os.Open(file)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		fmt.Println(scanner.Text())
+	reader := csv.NewReader(f)
+	var postcodes []model.Postcode
+	for {
+		elements, err := reader.Read()
+		if err != nil {
+			break // err means EOF
+		}
+		p := model.Postcode{
+			OrgCode:        elements[0],
+			PostcodeOld:    elements[1],
+			Postcode:       elements[2],
+			PrefectureRuby: elements[3],
+			CityRuby:       elements[4],
+			AreaRuby:       elements[5],
+			Prefecture:     elements[6],
+			City:           elements[7],
+			Area:           elements[8],
+			Flag1:          elements[9],
+			Flag2:          elements[10],
+			Flag3:          elements[11],
+			Flag4:          elements[12],
+			Flag5:          elements[13],
+			Flag6:          elements[14],
+		}
+		postcodes = append(postcodes, p)
 	}
-	return nil, nil
+	return postcodes, nil
+}
+
+func WriteJson(postcodes []model.Postcode, file string) error {
+	var buf bytes.Buffer
+	buf.WriteString("[\n")
+	for i, p := range postcodes {
+		b, err := json.Marshal(p)
+		if err != nil {
+			return err
+		}
+		buf.WriteString("  ")
+		buf.Write(b)
+		if i != len(postcodes)-1 {
+			buf.WriteString(",")
+		}
+		buf.WriteString("\n")
+	}
+	buf.WriteString("]\n")
+
+	f, err := os.Create(file)
+	if err != nil {
+		return err
+	}
+	w := bufio.NewWriter(f)
+	w.Write(buf.Bytes())
+	w.Flush()
+
+	return nil
 }
