@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -31,15 +32,7 @@ func main() {
 }
 
 func handle(w http.ResponseWriter, r *http.Request) {
-	postcodes := postmap["1060032"]
-	postcodesStr, err := PostcodesForView(postcodes)
-	if err != nil {
-		log.Println(err.Error())
-		w.WriteHeader(500)
-		return
-	}
-	fmt.Fprintln(w, postcodesStr)
-	fmt.Fprintln(w, "Hello, world!")
+	fmt.Fprintln(w, "Hello, World!")
 }
 
 func find(w http.ResponseWriter, r *http.Request) {
@@ -52,11 +45,6 @@ func find(w http.ResponseWriter, r *http.Request) {
 				results = append(results, v)
 			}
 		}
-		//for k, v := range postmap {
-		//	if strings.HasPrefix(k, pathPostCode) {
-		//		results = append(results, v...)
-		//	}
-		//}
 	} else if len(pathPostCode) == 7 {
 		results = postmap[pathPostCode]
 		if results == nil {
@@ -65,20 +53,19 @@ func find(w http.ResponseWriter, r *http.Request) {
 	} else {
 		results = []model.Postcode{}
 	}
-
-	params := r.URL.Query()
-	v, ok := params["prefecture"]
-	if ok {
-		paramPref := v[0]
-		matched := []model.Postcode{}
-		for _, r := range results {
-			if strings.Contains(r.Prefecture, paramPref) {
-				matched = append(matched, r)
-			}
-		}
-		results = matched
-	}
-
+	queries := r.URL.Query()
+	results = FilterByParam(results, queries, "prefecture", func(p model.Postcode, params []string) bool {
+		paramPref := params[0]
+		return strings.Contains(p.Prefecture, paramPref)
+	})
+	results = FilterByParam(results, queries, "city", func(p model.Postcode, params []string) bool {
+		paramCity := params[0]
+		return strings.Contains(p.City, paramCity)
+	})
+	results = FilterByParam(results, queries, "area", func(p model.Postcode, params []string) bool {
+		paramArea := params[0]
+		return strings.Contains(p.Area, paramArea)
+	})
 	strResults, err := PostcodesForView(results)
 	if err != nil {
 		log.Println(err.Error())
@@ -86,6 +73,20 @@ func find(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fmt.Fprintln(w, strResults)
+}
+
+func FilterByParam(pCodes []model.Postcode, params url.Values, paramName string, match func(model.Postcode, []string) bool) []model.Postcode {
+	p, ok := params[paramName]
+	if !ok {
+		return pCodes
+	}
+	matched := []model.Postcode{}
+	for _, r := range pCodes {
+		if match(r, p) {
+			matched = append(matched, r)
+		}
+	}
+	return matched
 }
 
 func PostcodesForView(postcodes []model.Postcode) (string, error) {
