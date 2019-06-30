@@ -23,7 +23,7 @@ func main() {
 
 func handle(w http.ResponseWriter, r *http.Request) {
 	cxt := appengine.NewContext(r)
-	loadCache(cxt)
+	checkAndLoadCache(cxt)
 
 	postcodes := postmap["1060032"]
 	postcodesStr, err := PostcodesForView(postcodes)
@@ -38,32 +38,39 @@ func handle(w http.ResponseWriter, r *http.Request) {
 
 func find(w http.ResponseWriter, r *http.Request) {
 	cxt := appengine.NewContext(r)
-	loadCache(cxt)
+	checkAndLoadCache(cxt)
 	id := strings.TrimPrefix(r.URL.Path, "/v1/postcodes/")
 
-	var postcodes []model.Postcode
-	if len(id) < 3 || 7 < len(id) {
-		postcodes = []model.Postcode{}
-	} else if len(id) == 7 {
-		postcodes = postmap[id]
-		if postcodes == nil {
-			postcodes = []model.Postcode{}
-		}
-	} else {
-		postcodes = []model.Postcode{}
+	var results []model.Postcode
+	if 3 <= len(id) && len(id) <= 6 {
 		for k, v := range postmap {
 			if strings.HasPrefix(k, id) {
-				postcodes = append(postcodes, v...)
+				results = append(results, v...)
 			}
 		}
+	} else if len(id) == 7 {
+		results = postmap[id]
+		if results == nil {
+			results = []model.Postcode{}
+		}
+	} else {
+		results = []model.Postcode{}
 	}
-	postcodesStr, err := PostcodesForView(postcodes)
+
+	params := r.URL.Query()
+	v, ok := params["prefecture"]
+	if ok {
+		pref := v[0]
+		fmt.Println(pref)
+	}
+
+	strResults, err := PostcodesForView(results)
 	if err != nil {
 		log.Println(err.Error())
 		w.WriteHeader(500)
 		return
 	}
-	fmt.Fprintln(w, postcodesStr)
+	fmt.Fprintln(w, strResults)
 }
 
 func PostcodesForView(postcodes []model.Postcode) (string, error) {
@@ -74,16 +81,18 @@ func PostcodesForView(postcodes []model.Postcode) (string, error) {
 	return string(postcodesJSON), nil
 }
 
+var postcodes []model.Postcode
 var postmap map[string][]model.Postcode
 
-func loadCache(c context.Context) error {
+func checkAndLoadCache(c context.Context) error {
 	if postmap != nil {
 		return nil
 	}
-	postcodes, err := loadPostcodes(c)
+	p, err := loadPostcodes(c)
 	if err != nil {
 		return err
 	}
+	postcodes = p
 	postmap = map[string][]model.Postcode{}
 	for _, p := range postcodes {
 		v, ok := postmap[p.Postcode]
