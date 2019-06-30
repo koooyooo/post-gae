@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/koooyooo/post-gae/gae/model"
 
@@ -15,16 +15,22 @@ import (
 	"google.golang.org/appengine"
 )
 
+type Done struct{}
+
 func main() {
+	d := make(chan Done)
+	go func() {
+		checkAndLoadCache(context.Background())
+		d <- Done{}
+	}()
+
 	http.HandleFunc("/", handle)
 	http.HandleFunc("/v1/postcodes/", find)
+	<-d
 	appengine.Main()
 }
 
 func handle(w http.ResponseWriter, r *http.Request) {
-	cxt := appengine.NewContext(r)
-	checkAndLoadCache(cxt)
-
 	postcodes := postmap["1060032"]
 	postcodesStr, err := PostcodesForView(postcodes)
 	if err != nil {
@@ -37,19 +43,22 @@ func handle(w http.ResponseWriter, r *http.Request) {
 }
 
 func find(w http.ResponseWriter, r *http.Request) {
-	cxt := appengine.NewContext(r)
-	checkAndLoadCache(cxt)
-	id := strings.TrimPrefix(r.URL.Path, "/v1/postcodes/")
+	pathPostCode := strings.TrimPrefix(r.URL.Path, "/v1/postcodes/")
 
 	var results []model.Postcode
-	if 3 <= len(id) && len(id) <= 6 {
-		for k, v := range postmap {
-			if strings.HasPrefix(k, id) {
-				results = append(results, v...)
+	if 3 <= len(pathPostCode) && len(pathPostCode) <= 6 {
+		for _, v := range postcodes {
+			if strings.HasPrefix(v.Postcode, pathPostCode) {
+				results = append(results, v)
 			}
 		}
-	} else if len(id) == 7 {
-		results = postmap[id]
+		//for k, v := range postmap {
+		//	if strings.HasPrefix(k, pathPostCode) {
+		//		results = append(results, v...)
+		//	}
+		//}
+	} else if len(pathPostCode) == 7 {
+		results = postmap[pathPostCode]
 		if results == nil {
 			results = []model.Postcode{}
 		}
@@ -60,8 +69,14 @@ func find(w http.ResponseWriter, r *http.Request) {
 	params := r.URL.Query()
 	v, ok := params["prefecture"]
 	if ok {
-		pref := v[0]
-		fmt.Println(pref)
+		paramPref := v[0]
+		matched := []model.Postcode{}
+		for _, r := range results {
+			if strings.Contains(r.Prefecture, paramPref) {
+				matched = append(matched, r)
+			}
+		}
+		results = matched
 	}
 
 	strResults, err := PostcodesForView(results)
@@ -88,13 +103,14 @@ func checkAndLoadCache(c context.Context) error {
 	if postmap != nil {
 		return nil
 	}
-	p, err := loadPostcodes(c)
+	loaded, err := loadPostcodes(c)
+	t1 := time.Now()
 	if err != nil {
-		return err
+		log.Fatal(err)
 	}
-	postcodes = p
+	postcodes = loaded
 	postmap = map[string][]model.Postcode{}
-	for _, p := range postcodes {
+	for _, p := range loaded {
 		v, ok := postmap[p.Postcode]
 		if !ok {
 			postmap[p.Postcode] = []model.Postcode{p}
@@ -102,10 +118,13 @@ func checkAndLoadCache(c context.Context) error {
 			v = append(v, p)
 		}
 	}
+	t2 := time.Now()
+	fmt.Println("prepare", t2.Sub(t1))
 	return nil
 }
 
 func loadPostcodes(c context.Context) ([]model.Postcode, error) {
+	t1 := time.Now()
 	client, err := storage.NewClient(c)
 	if err != nil {
 		log.Fatal(err)
@@ -116,11 +135,15 @@ func loadPostcodes(c context.Context) ([]model.Postcode, error) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	b, err := ioutil.ReadAll(reader)
+	t2 := time.Now()
+
 	if err != nil {
 		log.Fatal(err)
 	}
 	var p []model.Postcode
-	json.Unmarshal(b, &p)
+	json.NewDecoder(reader).Decode(&p) // better than... b, err := ioutil.ReadAll(reader) -> json.Unmarshal(b, &p)
+	t3 := time.Now()
+	fmt.Println("load-storage", t2.Sub(t1))
+	fmt.Println("load-marshal", t3.Sub(t2))
 	return p, nil
 }
