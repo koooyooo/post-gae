@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -14,27 +15,37 @@ import (
 )
 
 func main() {
-	//postcodes, err := LoadPostcode()
-	//if err != nil {
-	//	log.Fatal(err)
-	//}
-	//for _, p := range postcodes {
-	//	fmt.Println(p)
-	//}
-
 	http.HandleFunc("/", handle)
 	appengine.Main()
 }
 
 func handle(w http.ResponseWriter, r *http.Request) {
 	cxt := appengine.NewContext(r)
-	client, err := storage.NewClient(cxt)
+	if postcodes == nil {
+		p, err := loadPostcodes(cxt)
+		if err != nil {
+			log.Fatal(err)
+		}
+		postcodes = p
+	}
+	for _, p := range postcodes {
+		if p.Postcode == "1050011" {
+			//fmt.Fprintln(w, p)
+		}
+	}
+	fmt.Fprintln(w, "Hello, world!")
+}
+
+var postcodes []model.Postcode
+
+func loadPostcodes(c context.Context) ([]model.Postcode, error) {
+	client, err := storage.NewClient(c)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer client.Close()
 
-	reader, err := client.Bucket("dm-on-priv-post").Object("KEN_ALL.json").NewReader(cxt)
+	reader, err := client.Bucket("dm-on-priv-post").Object("KEN_ALL.json").NewReader(c)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -42,16 +53,7 @@ func handle(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Fprintln(w, len(b))
-	fmt.Fprintln(w, "Hello, world!")
-}
-
-func LoadPostcode() ([]model.Postcode, error) {
-	b, err := ioutil.ReadFile("KEN_ALL.json")
-	if err != nil {
-		return nil, err
-	}
-	var postcodes []model.Postcode
-	json.Unmarshal(b, &postcodes)
-	return postcodes, nil
+	var p []model.Postcode
+	json.Unmarshal(b, &p)
+	return p, nil
 }
