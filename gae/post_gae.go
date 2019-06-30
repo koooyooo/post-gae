@@ -51,21 +51,26 @@ func find(w http.ResponseWriter, r *http.Request) {
 			results = []model.Postcode{}
 		}
 	} else {
-		results = []model.Postcode{}
+		queries := r.URL.Query()
+		pref := queries["prefecture"][0]
+		if pref != "" {
+			results = postcodes
+			results = FilterByParam(results, queries, "prefecture", func(p model.Postcode, params []string) bool {
+				paramPref := params[0]
+				return strings.Contains(p.Prefecture, paramPref)
+			})
+			results = FilterByParam(results, queries, "city", func(p model.Postcode, params []string) bool {
+				paramCity := params[0]
+				return strings.Contains(p.City, paramCity)
+			})
+			results = FilterByParam(results, queries, "area", func(p model.Postcode, params []string) bool {
+				paramArea := params[0]
+				return strings.Contains(p.Area, paramArea)
+			})
+		} else {
+			results = []model.Postcode{}
+		}
 	}
-	queries := r.URL.Query()
-	results = FilterByParam(results, queries, "prefecture", func(p model.Postcode, params []string) bool {
-		paramPref := params[0]
-		return strings.Contains(p.Prefecture, paramPref)
-	})
-	results = FilterByParam(results, queries, "city", func(p model.Postcode, params []string) bool {
-		paramCity := params[0]
-		return strings.Contains(p.City, paramCity)
-	})
-	results = FilterByParam(results, queries, "area", func(p model.Postcode, params []string) bool {
-		paramArea := params[0]
-		return strings.Contains(p.Area, paramArea)
-	})
 	strResults, err := PostcodesForView(results)
 	if err != nil {
 		log.Println(err.Error())
