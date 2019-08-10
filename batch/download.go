@@ -4,8 +4,10 @@ import (
 	"archive/zip"
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/csv"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -15,47 +17,80 @@ import (
 	"path/filepath"
 	"strings"
 
+	"cloud.google.com/go/storage"
+
 	"github.com/koooyooo/post-gae/batch/model"
 	"golang.org/x/text/encoding/japanese"
 	"golang.org/x/text/transform"
 )
 
+const (
+	ZipName      = "ken_all.zip"
+	RawFileName  = "KEN_ALL.CSV"
+	UTF8FileName = "KEN_ALL_UTF8.CSV"
+	JSONFileName = "KEN_ALL.json"
+)
+
 func main() {
-	//fmt.Println("Hello Download")
-	//err := DownloadFile("https://www.post.japanpost.jp/zipcode/dl/kogaki/zip/ken_all.zip", "ken_all.zip")
-	//if err != nil {
-	//	log.Fatal(err.Error())
-	//}
-	//
-	//err = Unzip("ken_all.zip", ".")
-	//if err != nil {
-	//	log.Fatal(err.Error())
-	//}
-	//
-	//bSJIS, err := ioutil.ReadFile("KEN_ALL.CSV")
-	//if err != nil {
-	//	log.Fatal(err.Error())
-	//}
-	//sSJIS := string(bSJIS)
-	//
-	//sUTF, err := DecodeSJIS(sSJIS)
-	//if err != nil {
-	//	log.Fatal(err.Error())
-	//}
-	//err = ioutil.WriteFile("KEN_ALL_UTF8.CSV", []byte(sUTF), 0664)
-	//if err != nil {
-	//	log.Fatal(err.Error())
-	//}
+	flag.Parse()
+	args := flag.Args()
+	bucket := args[0]
+	gcsPath := args[1]
 
-	postcodes, err := LoadStruct("KEN_ALL_UTF8.CSV")
+	Update(bucket, gcsPath)
+}
+
+func Update(bucket, gcsPath string) {
+	fmt.Println("Start Downloading...")
+	fmt.Printf("  1. downloading %s\n", ZipName)
+	err := DownloadFile("https://www.post.japanpost.jp/zipcode/dl/kogaki/zip/"+ZipName, ZipName)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+	defer os.Remove(ZipName)
+
+	fmt.Printf("  2. unzip %s\n", ZipName)
+	err = Unzip(ZipName, ".")
 	if err != nil {
 		log.Fatal(err.Error())
 	}
 
-	err = WriteJson(postcodes, "KEN_ALL.json")
+	fmt.Printf("  3. convert sjis %s to utf8 %s\n", RawFileName, UTF8FileName)
+	bSJIS, err := ioutil.ReadFile(RawFileName)
 	if err != nil {
 		log.Fatal(err.Error())
 	}
+	defer os.Remove(RawFileName)
+	sSJIS := string(bSJIS)
+
+	sUTF, err := DecodeSJIS(sSJIS)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+	err = ioutil.WriteFile(UTF8FileName, []byte(sUTF), 0664)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+	defer os.Remove(UTF8FileName)
+
+	fmt.Printf("  4. read data from %s\n", UTF8FileName)
+	postcodes, err := LoadStruct(UTF8FileName)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+
+	fmt.Printf("  5. write data as %s\n", JSONFileName)
+	err = WriteJson(postcodes, JSONFileName)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+
+	fmt.Println("  6. upload data to Cloud Storage")
+	err = UploadJsonToGCS(JSONFileName, bucket, gcsPath)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+	fmt.Println("Finish Downloading.")
 }
 
 func DownloadFile(url string, filePath string) error {
@@ -84,7 +119,6 @@ func Unzip(src, dest string) error {
 	defer r.Close()
 
 	for _, f := range r.File {
-		fmt.Println(f.Name)
 		rc, err := f.Open()
 		if err != nil {
 			return err
@@ -184,5 +218,28 @@ func WriteJson(postcodes []model.Postcode, file string) error {
 	w.Write(buf.Bytes())
 	w.Flush()
 
+	return nil
+}
+
+func UploadJsonToGCS(filePath, bucketName, gcsPath string) error {
+	ctx := context.Background()
+	client, err := storage.NewClient(ctx)
+	if err != nil {
+		return err
+	}
+	w := client.Bucket(bucketName).Object(gcsPath).NewWriter(ctx)
+	w.ContentType = "application/json"
+
+	f, err := os.Open(filePath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	written, err := io.Copy(w, f)
+	fmt.Println(written)
+	if err != nil {
+		return err
+	}
+	defer w.Close()
 	return nil
 }
