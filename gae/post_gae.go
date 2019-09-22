@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"cloud.google.com/go/profiler"
+
 	"github.com/koooyooo/post-gae/gae/model"
 
 	"cloud.google.com/go/storage"
@@ -19,6 +21,10 @@ import (
 type Done struct{}
 
 func main() {
+	if err := profiler.Start(profiler.Config{}); err != nil {
+		log.Fatalf("init profiler fails: %v", err)
+	}
+
 	d := make(chan Done)
 	go func() {
 		checkAndLoadCache(context.Background())

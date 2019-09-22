@@ -6,3 +6,5 @@ require (
 	google.golang.org/api v0.7.0 // indirect
 	google.golang.org/appengine v1.6.1
 )
+
+go 1.13
